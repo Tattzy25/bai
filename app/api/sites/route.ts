@@ -35,12 +35,6 @@ export async function POST(req: NextRequest) {
       'https://bai-chi.vercel.app',
     ]
 
-    // Create Upstash Search index for this site
-    const searchClient = new Search({
-      url: process.env.UPSTASH_SEARCH_REST_URL!,
-      token: process.env.UPSTASH_SEARCH_REST_TOKEN!,
-    })
-
     const indexName = `site_${publicKey}`
     
     // Note: Upstash Search SDK doesn't expose index creation directly
@@ -117,7 +111,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
     // Authenticate user
     const user = await stackApp.getUser()

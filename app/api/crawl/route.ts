@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { crawlAndIndex } from '@upstash/search-crawler'
 import { db } from '@/lib/db'
-import { sites, crawlJobs, searchIndexes, quotas } from '@/lib/db/schema'
+import { sites, crawlJobs, quotas } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
 import { decrypt } from '@/lib/crypto.server'
 

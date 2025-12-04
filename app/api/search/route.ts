@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Search } from '@upstash/search'
 import { db } from '@/lib/db'
 import { decrypt } from '@/lib/crypto.edge'
-import { sites, searchIndexes, analyticsQueryEvents, quotas } from '@/lib/db/schema'
+import { sites, analyticsQueryEvents, quotas } from '@/lib/db/schema'
 import { eq, gte, and } from 'drizzle-orm'
 
 export const runtime = 'edge'

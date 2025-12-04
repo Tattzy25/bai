@@ -1,6 +1,6 @@
 // Edge-compatible decrypt using Web Crypto API
 export async function decrypt(encryptedData: string): Promise<string> {
-  const [ivHex, authTagHex, encrypted] = encryptedData.split(':')
+  const [, , encrypted] = encryptedData.split(':')
   
   // For Edge runtime, we need to use a simpler approach
   // In production, consider using a different encryption method for Edge

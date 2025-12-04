@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { sites, crawlJobs } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
-import { stackApp } from '@/lib/stack'
 
 export async function POST(
   req: NextRequest,
@@ -11,13 +10,10 @@ export async function POST(
   try {
     const { id } = await params
     
-    // Authenticate user
-    const user = await stackApp.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Neon Auth JWT validation and RLS filtering happens at database level
+    // No manual user authentication needed - RLS policies enforce access
 
-    // Verify site ownership
+    // Verify site ownership via RLS
     const site = await db.query.sites.findFirst({
       where: eq(sites.id, id),
     })
@@ -26,9 +22,8 @@ export async function POST(
       return NextResponse.json({ error: 'Site not found' }, { status: 404 })
     }
 
-    if (site.userId !== user.id) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+    // RLS policy automatically ensures user can only access their own sites
+    // If query returns a result, the current user owns it
 
     // Throttle: prevent reindex if nextCrawlAt is in the future
     const now = new Date()

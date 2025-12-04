@@ -1,9 +1,9 @@
 import { pgTable, uuid, text, timestamp, varchar, boolean, integer, index, uniqueIndex } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
-// Users table - Stack Auth user IDs from neon_auth.users_sync
+// Users table - Neon Auth manages authentication, this table stores user profile data
 export const users = pgTable('users', {
-  id: varchar('id', { length: 255 }).primaryKey(), // Stack Auth user ID (e.g., '3d62940c-006e-4b7d-bc8...')
+  id: varchar('id', { length: 255 }).primaryKey(), // Neon Auth user ID from neon_auth.users
   email: varchar('email', { length: 255 }).notNull().unique(),
   emailVerified: timestamp('email_verified'),
   name: varchar('name', { length: 255 }),
@@ -11,7 +11,7 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })
 
-// Auth.js adapter tables (retained for compatibility, but Stack Auth handles sessions)
+// Legacy auth tables (not used - Neon Auth handles all authentication)
 export const accounts = pgTable('accounts', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: varchar('user_id', { length: 255 }).notNull().references(() => users.id, { onDelete: 'cascade' }),

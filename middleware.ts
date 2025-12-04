@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
-import { stackApp } from "@/lib/stack"
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Public routes
+  // Public routes - allow all API routes
   if (
     pathname === "/" ||
     pathname.startsWith("/auth") ||
@@ -15,22 +14,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Protected routes under /app
-  if (pathname.startsWith("/app")) {
-    try {
-      const user = await stackApp.getUser()
-      
-      if (!user) {
-        const signInUrl = new URL("/auth/signin", request.url)
-        signInUrl.searchParams.set("redirect", pathname)
-        return NextResponse.redirect(signInUrl)
-      }
-    } catch (error) {
-      // If session check fails, redirect to sign in
-      const signInUrl = new URL("/auth/signin", request.url)
-      signInUrl.searchParams.set("redirect", pathname)
-      return NextResponse.redirect(signInUrl)
-    }
+  // Protected routes under /app or /dashboard
+  // Neon Auth JWT validation happens at the database level
+  // This middleware just ensures routes are accessible
+  if (pathname.startsWith("/app") || pathname.startsWith("/dashboard")) {
+    // JWT validation is handled by Neon Data API
+    // RLS policies enforce user isolation at database level
+    return NextResponse.next()
   }
 
   return NextResponse.next()

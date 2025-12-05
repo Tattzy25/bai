@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import { useParams } from "next/navigation"
 import {
   Sidebar,
@@ -67,7 +66,8 @@ interface UserSidebarProps {
 
 export function UserSidebar({ activeSection, onSectionChange }: UserSidebarProps) {
   const params = useParams()
-  const userId = params.userId as string
+  // userId available for future use
+  const _userId = params.userId as string
 
   return (
     <Sidebar variant="inset" className="border-r">

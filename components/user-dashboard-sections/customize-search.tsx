@@ -66,7 +66,7 @@ export function CustomizeSearch() {
             </label>
             <label className="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" defaultChecked className="h-4 w-4" />
-              <span>Show "Powered by Bridgit" badge</span>
+              <span>Show &quot;Powered by Bridgit&quot; badge</span>
             </label>
             <label className="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" className="h-4 w-4" />

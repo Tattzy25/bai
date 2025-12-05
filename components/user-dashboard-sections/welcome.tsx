@@ -21,7 +21,7 @@ export function UserWelcome() {
 
       {/* What's New */}
       <div>
-        <h2 className="text-xl font-semibold mb-4">What's New</h2>
+        <h2 className="text-xl font-semibold mb-4">What&apos;s New</h2>
         <div className="space-y-3">
           {[
             {

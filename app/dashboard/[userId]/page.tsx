@@ -35,16 +35,13 @@ export default function UserDashboardPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Fetch user's sites and analytics
     const fetchUserData = async () => {
       try {
-        // Placeholder: In production, fetch from /api/user/[userId]/dashboard
-        setStats({
-          totalSearches: 0,
-          totalSites: 1,
-          activeSites: 1,
-          totalPagesIndexed: 0,
-        })
+        const res = await fetch(`/api/dashboard/${userId}`)
+        if (res.ok) {
+          const data = await res.json()
+          setStats(data.stats)
+        }
         setLoading(false)
       } catch (error) {
         console.error('Failed to load user dashboard:', error)

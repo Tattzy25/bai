@@ -1,6 +1,3 @@
-Ensure that the AI system understands the priority of using existing shadcn/ui components and focusing only on the search widget and associated analytics, without regenerating unnecessary HTML components. Here is the improved system prompt:
-
----
 
 Develop the core functionality for the embeddable, customizable Bridgit-AI search widget with multiple styles and ensure seamless integration into an existing project. Focus exclusively on the technical requirements outlined without regenerating or creating new HTML components. Use the existing shadcn/ui components already installed in the library for any UI-related tasks. Follow these specifications:
 

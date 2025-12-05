@@ -2,582 +2,453 @@
 
 ## Project Overview
 
-Bridgit-AI is a Next.js 15 multi-tenant SaaS that enables fast, typo-tolerant search for static websites via Upstash Search. Goal: "From URL to live search in < 2 minutes."
+**Bridgit-AI** is a Next.js 15 multi-tenant SaaS that enables fast, typo-tolerant search for static websites via Upstash Search. The goal: "From URL to live search in < 2 minutes."
 
-**Core Architecture**: Neon-managed authentication + encrypted multi-tenant search
-1. **Neon Auth** → Handles ALL authentication (Google, GitHub, Resend email), JWT issuance, database RLS
-2. **Neon Data API** → PostgREST-compatible API with automatic JWT validation and RLS enforcement
-3. **Upstash Search** → Per-site encrypted credentials with referrer-validated Edge API
+**Core Value Proposition**: Site owners add a simple embed snippet to their website, and users get instant, beautiful search functionality with analytics.
 
-**Critical**: Neon Auth manages the entire authentication flow. Do NOT add Stack Auth, Auth0, Clerk, or any other auth provider - Neon handles everything including:
-- User sign-up/sign-in (Google, GitHub, email magic links via Resend)
-- JWT token issuance with `user_id` claim
-- Database Row-Level Security (RLS) policy enforcement via `auth.user_id()`
-- The `neon_auth` schema (system-managed, do not touch)
+### Architecture Summary
+- **Frontend**: Next.js 15.5.7 (App Router, React 19, TypeScript 5, Turbopack bundler)
+- **Database**: Neon Postgres with Drizzle ORM + Row-Level Security (RLS)
+- **Authentication**: Neon Auth (Google, GitHub, email magic links via Resend) - fully managed, JWT-based
+- **Search Engine**: Upstash Search (typo-tolerant, vector-based)
+- **Deployment**: Vercel (Edge runtime for `/api/search` endpoint)
+- **UI Library**: TailwindCSS 4 + shadcn/ui "new-york" style (32 components installed)
 
-**Data Flow**: User adds site → Background crawler indexes content → Embed widget queries Edge API → Results served with plan-based quotas/rate limits → Analytics tracked per-site.
+**Repository Size**: ~50 TypeScript/TSX files, 565-line vanilla JS widget, 172-line database schema
 
-## Stack & Build System
+---
 
-- **Framework**: Next.js 15.5.7 (App Router, React 19, TypeScript 5, Turbopack)
-- **Database**: Neon Postgres + Drizzle ORM (schema: `lib/db/schema.ts`)
-- **Auth**: Neon Auth (managed by Neon - Google, GitHub, Resend email)
-- **Search**: Upstash Search + Crawler (`@upstash/search`, `@upstash/search-crawler`)
-- **UI**: TailwindCSS 4, shadcn/ui "new-york" style, `lucide-react` icons
-- **Deployment**: Vercel (Edge runtime for `/api/search` and `/api/sites/[id]/reindex`)
+## Critical: Build & Environment Setup
 
-### Dev Commands
+### Prerequisites
+- **Node.js 20.x** (v20.19.6 tested)
+- **pnpm** (package manager - MUST use pnpm, not npm)
+
+### Installation Steps
+
+**ALWAYS run these commands in sequence:**
+
 ```bash
-pnpm dev              # Dev server with Turbopack
-pnpm build            # Production build (uses Turbopack)
-pnpm start            # Production server
-pnpm lint             # ESLint 9 with flat config
+# 1. Install pnpm globally (if not already installed)
+npm install -g pnpm
+
+# 2. Install dependencies (takes ~15-20 seconds)
+pnpm install
+
+# 3. Setup environment variables (REQUIRED for build)
+# Create .env.local with at minimum:
+DATABASE_URL=postgresql://user:pass@host/db?sslmode=require
+ENCRYPTION_KEY=<32-character-string>
+UPSTASH_SEARCH_REST_URL=https://endpoint.upstash.io
+UPSTASH_SEARCH_REST_TOKEN=<token>
+```
+
+**Environment Variable Notes**:
+- `ENCRYPTION_KEY` MUST be exactly 32 characters (generate: `openssl rand -base64 32 | cut -c1-32`)
+- For build testing only, dummy values work (e.g., `12345678901234567890123456789012`)
+- Never commit `.env.local` or expose real credentials
+
+### Build Process
+
+**Available Scripts** (from `package.json`):
+```bash
+pnpm dev              # Start dev server with Turbopack (port 3000)
+pnpm build            # Production build with Turbopack (~12-15s compile time)
+pnpm start            # Start production server
+pnpm lint             # Run ESLint 9 with flat config
 pnpm db:generate      # Generate Drizzle migrations from schema
 pnpm db:migrate       # Apply migrations to Neon database
 pnpm db:push          # Push schema changes directly (dev only)
 pnpm db:studio        # Launch Drizzle Studio on localhost:4983
 ```
 
-**Build Notes**: Turbopack is the default bundler (both dev & build). All TypeScript paths use `@/` aliases configured in `tsconfig.json` and `components.json`.
+### Build Issues & Workarounds
 
-## Project Structure & File Organization
+**Known Issue #1: Google Fonts Network Error (CRITICAL)**
+- **Symptom**: Build fails with "Failed to fetch `Geist` from Google Fonts" + "Failed to fetch `Geist Mono` from Google Fonts"
+- **Cause**: Font loading requires internet access during build (blocked in restricted environments like GitHub Actions)
+- **Workaround** (AUTOMATED - RECOMMENDED):
+  
+```bash
+# Before build: disable fonts
+./scripts/disable-fonts.sh
 
+# Run build
+pnpm build
+
+# After build: restore fonts (optional)
+./scripts/enable-fonts.sh
+```
+
+- **Workaround** (MANUAL - if scripts unavailable): Edit `app/layout.tsx`:
+  
+```typescript
+// Comment out lines 2, 6-14, and update line 29:
+// import { Geist, Geist_Mono } from "next/font/google";
+// const geistSans = Geist({ ... });
+// const geistMono = Geist_Mono({ ... });
+
+// Change:
+className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+// To:
+className="antialiased"
+```
+
+- **Impact**: Build will succeed without custom fonts; default system fonts used
+- **When to use**: ALWAYS use this workaround in CI/CD pipelines or restricted networks
+- **Scripts location**: `scripts/disable-fonts.sh` and `scripts/enable-fonts.sh`
+
+**Known Issue #2: ESLint Warnings Treated as Errors**
+- **Symptom**: Build completes compilation but fails linting with warnings like:
+  - `react/no-unescaped-entities` (lines with `"` or `'` in JSX)
+  - `@typescript-eslint/no-unused-vars` (unused imports/variables)
+- **Fix**: Use HTML entities in JSX text:
+  - Replace `"` with `&quot;` or `&ldquo;`/`&rdquo;`
+  - Replace `'` with `&apos;` or `&lsquo;`/`&rsquo;`
+- **Example**: `Show "Powered by" badge` → `Show &quot;Powered by&quot; badge`
+
+**Fixed ESLint Errors** (as of December 5, 2025):
+1. `app/api/sites/route.ts:6` - Removed unused `Search` import from `@upstash/search`
+2. `app/api/sites/route.ts:116` - Removed unused `request` parameter from GET function
+3. `app/auth/signin/page.tsx:6` - Removed unused `router` from `useRouter()`
+4. `app/auth/signup/page.tsx:6` - Removed unused `router` from `useRouter()`
+5. `app/dashboard/page.tsx:14` - Removed unused `Site` type definition
+6. `components/section-cards.tsx:1` - Removed unused `IconTrendingDown` import
+7. `components/user-sidebar.tsx:3` - Removed unused `useState` import
+8. `components/user-sidebar.tsx:70` - Prefixed unused `userId` with `_` to indicate intentional
+9. `components/user-dashboard-sections/customize-search.tsx:69` - Fixed unescaped quotes with `&quot;`
+10. `components/user-dashboard-sections/welcome.tsx:24` - Fixed unescaped apostrophe with `&apos;`
+
+### Validation Commands
+
+**ALWAYS validate changes in this order:**
+
+```bash
+# 1. Linting (catches unused vars and JSX issues)
+pnpm lint   # ESLint 9 with Next.js config
+
+# 2. Full build test (12-15 seconds if fonts work, or apply workaround)
+pnpm build  # Must pass without errors
+
+# 3. Type checking (implicit in build)
+# TypeScript errors will fail compilation during build
+```
+
+**No test suite exists** - manual validation required for functional changes.
+
+---
+
+## Project Structure & Key Files
+
+### Root Directory Files
 ```
 bai/
-├── app/                          # Next.js App Router
-│   ├── api/                     # API routes (Edge & Node runtimes)
-│   │   ├── search/route.ts     # Edge: Proxy search queries to Upstash
-│   │   ├── crawl/route.ts      # Background crawler executor
-│   │   └── sites/              # CRUD for user sites
-│   ├── auth/                    # Neon Auth UI pages (if custom)
-│   ├── dashboard/               # Protected user dashboard
-│   ├── layout.tsx               # Root layout
-│   ├── providers.tsx            # Client-side providers (theme, etc.)
-│   └── globals.css              # TailwindCSS + CSS variables
-├── lib/
-│   ├── db/
-│   │   ├── index.ts            # Drizzle client + connection
-│   │   └── schema.ts           # Database schema (173 lines)
-│   ├── crypto.server.ts         # Node.js crypto (encrypt/decrypt/generatePublicKey)
-│   ├── crypto.edge.ts           # Web Crypto API for Edge runtime
-│   └── utils.ts                 # cn() utility, etc.
-├── components/
-│   ├── ui/                      # shadcn/ui components (Button, Input, etc.)
-│   ├── app-sidebar.tsx          # Dashboard sidebar navigation
-│   ├── data-table.tsx           # Reusable table with TanStack Table
-│   └── [other].tsx              # Feature-specific components
-├── public/
-│   └── embed.js                 # Embeddable search widget (566 lines)
-├── drizzle/                     # Generated migrations
-│   ├── 0000_*.sql
-│   └── meta/                    # Migration metadata
-├── middleware.ts                # Route protection (JWT validation)
-├── drizzle.config.ts            # Drizzle Kit configuration
-└── components.json              # shadcn/ui configuration
+├── .github/
+│   ├── copilot-instructions.md        # This file
+│   ├── AI_READ_THIS_FIRST.md          # Project context
+│   └── [other docs]                   # Architecture docs
+├── package.json                        # Scripts: dev, build, lint, db:*
+├── tsconfig.json                       # TypeScript config (strict mode, @/ aliases)
+├── next.config.ts                      # Next.js config (minimal, Turbopack default)
+├── eslint.config.mjs                   # ESLint 9 flat config
+├── drizzle.config.ts                   # Drizzle Kit config (schema: lib/db/schema.ts)
+├── postcss.config.mjs                  # PostCSS with Tailwind 4
+├── components.json                     # shadcn/ui config (new-york style, RSC)
+├── middleware.ts                       # Route protection (JWT validation)
+├── README.md                           # Comprehensive project documentation
+├── SCHEMA_GUIDE.md                     # Database schema reference
+├── NEXT_STEPS.md                       # Deployment checklist
+├── WIDGET_DEVELOPMENT_GUIDE.md         # Widget architecture documentation
+└── .env.local                          # Local environment variables (gitignored)
 ```
 
-### File Naming Conventions
-- API routes: `route.ts` (Next.js App Router convention)
-- Server Components: `page.tsx`, `layout.tsx`
-- Client Components: Must have `"use client"` directive at top
-- UI components: `kebab-case.tsx` (e.g., `button.tsx`, `data-table.tsx`)
-- Schema/utilities: `kebab-case.ts` or descriptive names (e.g., `crypto.server.ts`)
+### Application Structure
+```
+app/
+├── api/                                # API routes (Next.js App Router)
+│   ├── search/route.ts                # Edge runtime search proxy (CRITICAL)
+│   ├── crawl/route.ts                 # Background crawler webhook
+│   ├── sites/route.ts                 # CRUD for user sites
+│   └── sites/[id]/reindex/route.ts    # Manual reindex trigger
+├── auth/                               # Authentication pages
+│   ├── signin/page.tsx                # Sign-in UI (placeholder)
+│   └── signup/page.tsx                # Sign-up UI (placeholder)
+├── dashboard/                          # Protected dashboard
+│   ├── page.tsx                       # Main dashboard view
+│   └── [userId]/page.tsx              # User-specific dashboard
+├── layout.tsx                          # Root layout (fonts, providers)
+├── page.tsx                            # Landing page
+├── providers.tsx                       # Client-side providers (theme)
+└── globals.css                         # TailwindCSS + CSS variables
+```
 
-### Component Organization
-- **Place UI primitives** in `components/ui/` (shadcn/ui managed)
-- **Place feature components** in `components/` root (e.g., `app-sidebar.tsx`, `nav-documents.tsx`)
-- **Use `"use client"`** sparingly - prefer Server Components by default
-- **Co-locate data fetching** with Server Components (use Drizzle queries directly)
+### Library & Components
+```
+lib/
+├── db/
+│   ├── index.ts                       # Drizzle client + Neon connection
+│   └── schema.ts                      # Database schema (172 lines, 9 tables)
+├── crypto.server.ts                    # Node.js crypto (encrypt/decrypt/generatePublicKey)
+├── crypto.edge.ts                      # Web Crypto API for Edge runtime
+└── utils.ts                            # cn() utility for className merging
 
-## Authentication Architecture (CRITICAL)
+components/
+├── ui/                                 # shadcn/ui primitives (32 components)
+│   ├── button.tsx                     # Button with variants (cva)
+│   ├── dialog.tsx                     # Modal/dialog primitives
+│   ├── input.tsx                      # Form input
+│   └── [28 more components]           # Full shadcn/ui suite
+├── app-sidebar.tsx                     # Dashboard sidebar navigation
+├── data-table.tsx                      # TanStack Table wrapper
+├── user-dashboard-sections/           # Dashboard feature sections
+│   ├── welcome.tsx                    # Welcome section
+│   └── customize-search.tsx           # Widget customization
+└── [other components]                  # Feature-specific components
 
-### Neon Auth - Fully Managed by Neon
+public/
+└── embed.js                            # Embeddable search widget (565 lines, vanilla JS)
 
-**IMPORTANT**: This project uses **Neon Auth** - a complete authentication solution managed entirely by Neon. Do NOT add Stack Auth, Clerk, Auth0, or any other auth provider.
+drizzle/
+├── 0000_*.sql                          # Generated migrations
+└── meta/                               # Migration metadata
+```
+
+---
+
+## Database Schema & Authentication
+
+### Neon Auth (CRITICAL - DO NOT BYPASS)
+
+**This project uses Neon Auth exclusively** - DO NOT add Stack Auth, Clerk, Auth0, or other auth providers.
 
 **How Neon Auth Works**:
-1. **User authentication** → Neon Auth handles sign-in via Google, GitHub, or Resend email magic links
-2. **JWT issuance** → Neon Auth generates JWT with `user_id` claim  
-3. **Database access** → Neon Data API validates JWT and enforces RLS automatically
-4. **RLS enforcement** → Postgres `auth.user_id()` function extracts `user_id` from JWT for row-level policies
+1. User authenticates via Neon-hosted UI (Google, GitHub, email magic links)
+2. Neon Auth issues JWT with `user_id` claim
+3. All API requests include JWT in `Authorization: Bearer <token>` header
+4. Neon Data API validates JWT automatically
+5. Row-Level Security (RLS) enforces data isolation via `auth.user_id()` function
 
-**No manual authentication code needed** - Neon handles:
-- Auth UI and user flows
-- JWT token generation and validation
-- Session management
-- The `neon_auth` system schema (read-only)
-- Automatic RLS enforcement via `auth.user_id()` function
+**Schema: `neon_auth` (system-managed, READ-ONLY)**
+- Managed entirely by Neon platform
+- Contains `neon_auth.users` table (synced to `public.users`)
+- NEVER modify `neon_auth` schema directly
 
-### Accessing User Data
+### Core Tables (9 tables, RLS-enabled)
 
-**In API Routes** (use Neon Data API):
-```typescript
-// Neon Data API validates JWT automatically from Authorization header
-// Access user ID via auth.user_id() in SQL/Drizzle queries
-GET /api/search?q=...&siteKey=...
-Authorization: Bearer <neon-jwt-token>
-
-// RLS policies automatically filter by auth.user_id()
+**`users`** - User profiles (synced from Neon Auth)
+```sql
+id VARCHAR(255) PRIMARY KEY           -- Neon Auth user ID (e.g., '3d62940c-006e-...')
+email VARCHAR(255) NOT NULL UNIQUE
+name VARCHAR(255)
+image TEXT
+createdAt TIMESTAMP DEFAULT NOW()
 ```
+**RLS**: Public table (user creation handled by Neon Auth)
 
-**For database operations**:
-```typescript
-// RLS policies use auth.user_id() - no manual user checks needed
-const sites = await db.query.sites.findMany()  
-// Returns only rows where user_id = auth.user_id()
+**`sites`** - Customer websites (one per search site)
+```sql
+id UUID PRIMARY KEY
+userId VARCHAR(255) REFERENCES users  -- Owner
+publicKey VARCHAR(255) UNIQUE         -- Format: 'bai_<32-hex-chars>'
+domain VARCHAR(255)                   -- e.g., 'https://docs.example.com'
+allowedReferrers TEXT[]               -- CORS-style origin validation
+plan VARCHAR(50) DEFAULT 'free'       -- 'free' | 'pro' | 'business'
+status VARCHAR(50) DEFAULT 'pending'  -- 'pending' | 'active' | 'failed'
+pagesIndexed INTEGER DEFAULT 0
+nextCrawlAt TIMESTAMP                 -- Throttle: next allowed crawl
+createdAt TIMESTAMP DEFAULT NOW()
 ```
+**RLS**: `WHERE user_id = auth.user_id()`
 
-### RLS Policy Pattern
-
-All user-owned tables use this pattern (defined in Drizzle `lib/db/schema.ts`):
-```typescript
-// Drizzle RLS policy using crudPolicy helper
-crudPolicy({
-  role: authenticatedRole,
-  read: authUid(table.userId),    // Checks user_id = auth.user_id()
-  modify: authUid(table.userId),
-});
-
-// Or with raw SQL for indirect ownership:
-crudPolicy({
-  role: authenticatedRole,
-  read: sql`(SELECT sites.user_id = auth.user_id() FROM sites WHERE sites.id = ${table.siteId})`,
-  modify: sql`(SELECT sites.user_id = auth.user_id() FROM sites WHERE sites.id = ${table.siteId})`,
-});
+**`quotas`** - Usage limits per site
+```sql
+siteId UUID REFERENCES sites UNIQUE
+queriesUsed INTEGER DEFAULT 0
+pagesCrawled INTEGER DEFAULT 0
+resetAt TIMESTAMP                     -- Monthly reset
 ```
+**Plan Limits**:
+- Free: 1,000 queries/month, 60 QPM, 30min crawl throttle
+- Pro: 10,000 queries/month, 600 QPM, 10min crawl throttle
+- Business: 100,000 queries/month, 6,000 QPM, 2min crawl throttle
 
-**⚠️ NEVER modify `neon_auth` schema** - it's system-managed by Neon for JWT validation and user sync.
+**`analytics_query_events`** - Search analytics
+```sql
+id UUID PRIMARY KEY
+siteId UUID REFERENCES sites
+query TEXT                            -- Search query text
+resultsCount INTEGER                  -- Number of results returned
+latencyMs INTEGER                     -- Response time in ms
+selectedDocId TEXT                    -- Clicked result (if any)
+createdAt TIMESTAMP
+```
+**RLS**: Indirect via sites table
 
-## Database Schema & Relationships
+---
 
-### Core Tables (all use UUID primary keys except `users`)
+## API Endpoints & Edge Runtime
 
-**`users`** - Neon Auth user records (synced from `neon_auth` schema)
-- `id: varchar(255)` (Neon Auth user ID, e.g., `'3d62940c-006e-...'`)
-- `email`, `name`, `image`, `createdAt`
-- **Note**: User creation/management handled by Neon Auth, not application code
+### `/api/search` - Search Proxy (Edge Runtime)
 
-**`sites`** - User-created search sites (RLS: `user_id = auth.user_id()`)
-- `userId` → references `users.id`
-- `publicKey` - unique key for embed snippet (format: `bai_<32-hex-chars>`)
-- `allowedReferrers` - text array for CORS-style validation
-- `plan` - `'free' | 'pro' | 'business'` (affects rate limits, crawl throttle)
-- `status` - `'pending' | 'active' | 'failed'`
-- `nextCrawlAt` - crawl throttle timestamp (plan-based: 30min free, 10min pro, 2min business)
-
-**`search_indexes`** - Encrypted Upstash credentials per site (1:1 with sites)
-- `siteId` → references `sites.id` (unique)
-- `upstashSearchUrl`, `upstashSearchToken` - **encrypted with AES-256-GCM** (see `lib/crypto.server.ts`)
-
-**`crawl_jobs`** - Async crawl tracking (RLS: indirect via sites)
-- `siteId` → references `sites.id`
-- `status` - `'queued' | 'running' | 'failed' | 'complete'`
-- `pagesIndexed`, `errorMessage`, `startedAt`, `finishedAt`
-
-**`quotas`** - Monthly usage limits (RLS: indirect via sites)
-- `siteId` → references `sites.id` (unique)
-- `queriesUsed`, `pagesCrawled`, `resetAt`
-- Plan limits: 
-  - **free**: 1,000 queries/month, 60 QPM rate limit, 30min crawl throttle
-  - **pro**: 10,000 queries/month, 600 QPM rate limit, 10min crawl throttle
-  - **business**: 100,000 queries/month, 6,000 QPM rate limit, 2min crawl throttle
-
-**`analytics_query_events`** - Search analytics (RLS: indirect via sites)
-- `siteId`, `query`, `resultsCount`, `latencyMs`, `selectedDocId`, `createdAt`
-
-### Drizzle Queries with Relations
+**CRITICAL**: MUST use Edge runtime for global low latency (~50ms target)
 
 ```typescript
-import { db } from '@/lib/db'
-import { eq } from 'drizzle-orm'
-
-// Fetch site with all related data
-const site = await db.query.sites.findFirst({
-  where: eq(sites.publicKey, siteKey),
-  with: {
-    searchIndex: true,  // 1:1 relation
-    quota: true,        // 1:1 relation
-    crawlJobs: true,    // 1:many relation
-  },
-})
+export const runtime = 'edge'  // REQUIRED at top of route.ts
 ```
 
-## API Endpoint Patterns
+**Request Flow**:
+1. Extract `q` (query) and `siteKey` from URL params
+2. Validate referrer against `sites.allowedReferrers` (403 if mismatch)
+3. Check monthly quota: `quotas.queriesUsed < PLAN_LIMITS[plan]` (429 if exceeded)
+4. Rate limit: Count analytics events in last 60s (429 if over limit)
+5. Decrypt Upstash credentials via `decrypt()` from `lib/crypto.edge.ts` (async Web Crypto)
+6. Query Upstash Search: `index.search({ query, limit: 10, reranking: true })`
+7. Log analytics event (fire-and-forget): query, results count, latency
+8. Increment `quotas.queriesUsed` (fire-and-forget)
+9. Return results JSON
 
-### `POST /api/sites` - Create Site + Provision Search
-
-1. Extract JWT from `Authorization` header (Neon Data API validates automatically)
-2. Generate unique `publicKey` via `generatePublicKey()` (from `lib/crypto.server.ts`)
-3. Create `sites` record - `userId` populated from `auth.user_id()` (RLS auto-enforces ownership)
-4. Encrypt Upstash credentials and store in `search_indexes`
-5. Initialize `quotas` record (reset monthly)
-6. Enqueue `crawl_jobs` record (status: `'queued'`)
-
-**Key Pattern**: RLS policies automatically set `userId = auth.user_id()` - users can't write to others' data.
-
-### `GET /api/search` - Edge Runtime Search Proxy
-
-**Flow**:
-1. Extract `siteKey` + `q` (query) from URL params
-2. Lookup site by `publicKey` with relations: `searchIndex`, `quota`
-3. Validate referrer against `sites.allowedReferrers` (prevents hotlinking, 403 if fails)
-4. Check monthly quota: `quotas.queriesUsed < PLAN_LIMITS[plan]` (429 if exceeded)
-5. Rate limit: Count `analytics_query_events` in last 60s (429 if over 60/600/6000 QPM)
-6. Decrypt `search_indexes` credentials via `decrypt()` from `lib/crypto.edge.ts`
-7. Query Upstash Search with `index.search({ query, limit: 10, reranking: true })`
-8. Log analytics event (fire-and-forget): query, results count, latency
-9. Increment `quotas.queriesUsed` (fire-and-forget)
-10. Return results JSON with `poweredBy: 'Bridgit-AI'` if `brandingEnabled = true`
-
-**Runtime**: MUST use Edge (`export const runtime = 'edge'`) for global low latency (~50ms target).
-
-**Error responses**:
+**Error Codes**:
 - 400: Missing `q` or `siteKey`
 - 403: Referrer not in `allowedReferrers`
 - 404: Invalid `siteKey`
 - 429: Quota exceeded or rate limit hit
 - 500: Search index not configured or query failed
 
-### `POST /api/crawl` - Background Crawl Executor
-
-**Flow**:
-1. Extract `siteId` + `crawlJobId` from request body
-2. Fetch site with relations: `searchIndex`, `quota`
-3. Check throttle: reject if `sites.nextCrawlAt > now` (429 with `nextAllowedAt`)
-4. Update `crawl_jobs` status to `'running'`, set `startedAt`
-5. Decrypt Upstash credentials using `lib/crypto.server.ts` (Node runtime)
-6. Call `crawlAndIndex({ upstashUrl, upstashToken, indexName, docUrl, silent: true })`
-7. On success:
-   - Update `sites`: `status = 'active'`, `lastCrawlAt = now`, `pagesIndexed`, `nextCrawlAt`
-   - Update `crawl_jobs`: `status = 'complete'`, `finishedAt`, `pagesIndexed`
-   - Increment `quotas.pagesCrawled` (fire-and-forget)
-8. On error:
-   - Update `crawl_jobs`: `status = 'failed'`, `finishedAt`, `errorMessage`
-   - Update `sites`: `status = 'failed'`
-
-**Throttle Logic**: `nextCrawlAt = now + throttleMinutes * 60 * 1000` where throttleMinutes = 30 (free) | 10 (pro) | 2 (business).
-
-**Note**: This endpoint is typically triggered by Upstash Workflow or cron jobs, not directly by users.
-
-## Encryption Patterns
-
-**Server-side** (`lib/crypto.server.ts` - Node.js `crypto`):
-```typescript
-import { encrypt, decrypt, generatePublicKey } from '@/lib/crypto.server'
-const encrypted = encrypt('sensitive-value')  // Returns 'iv:authTag:ciphertext'
-const decrypted = decrypt(encrypted)          // Returns original value
-const pubKey = generatePublicKey()            // Returns 'bai_<32-hex-chars>'
-```
-
-**Edge runtime** (`lib/crypto.edge.ts` - Web Crypto API):
-```typescript
-import { decrypt } from '@/lib/crypto.edge'
-const decrypted = await decrypt(encrypted)    // Async for Web Crypto
-```
-
-**Environment**: Requires `ENCRYPTION_KEY` (32-char base64 string) - defaults to dev key if missing.
-
-## Component & UI Patterns
-
-### Import Paths (tsconfig aliases)
-```tsx
-import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
-import { db } from "@/lib/db"
-import { encrypt, decrypt } from "@/lib/crypto.server"
-```
-
-### shadcn/ui Conventions
-
-**Configuration**: Uses "new-york" style variant with neutral base color, RSC enabled, CSS variables for theming.
-
-**Adding components**:
-```bash
-npx shadcn@latest add [component-name]  # Installs to @/components/ui
-```
-
-**Component structure** (see `components/ui/button.tsx` for reference):
-- Uses `class-variance-authority` (cva) for variant management
-- Implements `asChild` prop pattern with `@radix-ui/react-slot`
-- Includes focus-visible rings, aria-invalid states, size variants
-- All UI components export both component and variants function
-
-**Always use `cn()` for className merging**:
-```tsx
-import { cn } from "@/lib/utils"
-<div className={cn("base-classes", conditionalClass, className)} />
-```
-
-**Variant patterns** (from `class-variance-authority`):
-```tsx
-const buttonVariants = cva("base-classes", {
-  variants: {
-    variant: { 
-      default: "bg-primary text-primary-foreground hover:bg-primary/90",
-      destructive: "bg-destructive text-white hover:bg-destructive/90",
-      outline: "border bg-background shadow-xs hover:bg-accent",
-      ghost: "hover:bg-accent hover:text-accent-foreground"
-    },
-    size: { 
-      default: "h-9 px-4 py-2", 
-      sm: "h-8 px-3", 
-      icon: "size-9" 
-    }
-  },
-  defaultVariants: { variant: "default", size: "default" }
-})
-```
-
-### TailwindCSS 4 Features
-- Dark mode variants: `dark:bg-input/30 dark:border-input dark:hover:bg-input/50`
-- Container queries: `@container/card-header`
-- CSS variables: `var(--background)`, `var(--foreground)`, `var(--primary)` (defined in `app/globals.css`)
-- Opacity modifiers: `bg-primary/90`, `ring-destructive/20`
-- Size utilities: `size-9` (both width and height), `gap-2`, `shrink-0`
-
-## Route Protection & Middleware
-
-**Middleware** (`middleware.ts`) protects `/app/*` routes (dashboard, settings, etc.).
-
-### Protected vs Public Routes
-```typescript
-// Public (no auth required)
-/                         // Landing page
-/api/search              // Public search endpoint (validates JWT internally)
-/api/*                   // All API routes (validate JWT as needed)
-
-// Protected (requires Neon Auth JWT)
-/app/*                   // Dashboard, user-facing app routes
-/dashboard/*             // Protected dashboard routes
-```
-
-**Pattern**: API routes validate JWT from `Authorization: Bearer <token>` header. Neon Data API enforces RLS automatically.
-
-### Adding New Protected Routes
-1. Place under `/app/*` directory structure (auto-protected by middleware)
-2. Access user in Server Components: `const user = await stackApp.getUser()`
-3. For API routes under `/api`, manually check auth: 
-```typescript
-const user = await stackApp.getUser()
-if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-```
-
-## Critical Security Rules
-
-1. **Never expose Upstash credentials** - Always decrypt server-side in API routes/Server Components, never send to client
-2. **Never bypass RLS** - All user data access MUST go through Drizzle queries with `user.id` checks (RLS enforces automatically)
-3. **Validate referrers** - Check `allowedReferrers` array in `/api/search` before serving results (prevents hotlinking)
-4. **Encrypt at rest** - Use `encrypt()` from `lib/crypto.server.ts` for ANY Upstash tokens/URLs stored in database
-5. **Don't modify `neon_auth` schema** - It's managed by Neon for JWT validation (system schema, read-only)
-6. **Edge runtime restrictions** - Use `lib/crypto.edge.ts` for Edge routes (no Node.js `crypto` module available)
-
-## Environment Variables
-
-**Location**: Store in `.env.local` (gitignored) for local dev, use Vercel dashboard for production.
-
-### Required Variables
-```bash
-# Database (Neon Postgres)
-DATABASE_URL=postgres://user:pass@host/db?sslmode=require
-# Format: postgres://[user]:[password]@[neon-host]/[dbname]?sslmode=require
-# Get from: Neon Console → Connection Details → Connection String
-
-# Neon Auth (managed by Neon - no env vars needed)
-# Authentication is handled entirely by Neon platform
-# Users authenticate via Neon-hosted UI or Data API
-
-# Upstash Search (Master credentials - shared across sites)
-UPSTASH_SEARCH_REST_URL=https://[endpoint].upstash.io
-UPSTASH_SEARCH_REST_TOKEN=...
-# Get from: Upstash Console → Search Index → REST API
-# Note: These get encrypted per-site in `search_indexes` table
-
-# Encryption (AES-256-GCM)
-ENCRYPTION_KEY=...
-# Generate: openssl rand -base64 32 | cut -c1-32
-# MUST be exactly 32 characters
-```
-
-### Optional Variables
-```bash
-# Development
-NODE_ENV=development              # Auto-set by Next.js
-PORT=3000                        # Dev server port (default: 3000)
-
-# Monitoring/Analytics (if integrated)
-NEXT_PUBLIC_ANALYTICS_ID=...
-```
-
-**Security Notes**:
-- Never commit `.env.local` or expose `ENCRYPTION_KEY` in logs
-- `NEXT_PUBLIC_*` vars are embedded in client bundle (use only for non-sensitive data)
-- Rotate `ENCRYPTION_KEY` requires re-encrypting all `search_indexes` credentials
-
-## Development Workflows
-
-### Database Schema Changes
-1. Update `lib/db/schema.ts` with new tables/columns
-2. Run `pnpm db:generate` to create migration files in `drizzle/`
-3. Run `pnpm db:migrate` to apply to Neon database
-4. If adding user-owned tables, update RLS policies (see RLS section)
-
-**Quick iteration** (dev only): Use `pnpm db:push` to sync schema without generating migration files.
-
-### Running RLS Setup
-```bash
-# After schema changes, enable RLS on new tables (do once)
-pnpm tsx scripts/setup-rls.ts
-# Or manually in Neon SQL Editor: paste from migrations/enable_rls.sql
-```
-
-### Testing Auth with Neon
-1. Enable Neon Auth in Neon Console when enabling Data API
-2. Users authenticate via Neon-hosted auth UI (Google, GitHub, Resend email)
-3. Neon Auth issues JWT tokens automatically
-4. Include JWT in `Authorization: Bearer <token>` header for API requests
-5. RLS policies automatically enforce user isolation via `auth.user_id()`
-
-### Debugging Search Widget (`public/embed.js`)
-1. **Test locally**: Change `data-endpoint` to `http://localhost:3000/api/search` in HTML snippet
-2. **Check referrer**: Verify `sites.allowedReferrers` array includes request origin (e.g., `http://localhost:8000`)
-3. **Monitor browser console**: Widget logs errors like `[Bridgit-AI] Missing data-site-key`
-4. **Network tab**: Inspect `/api/search?q=...&siteKey=...` responses for 403/429 errors
-5. **Test quotas**: Check `quotas.queriesUsed` against plan limits in Drizzle Studio
-
-### Debugging Search API
-1. Check `sites.allowedReferrers` includes request origin
-2. Verify `quotas.queriesUsed < planLimit` (1K/10K/100K for free/pro/business)
-3. Check recent `analytics_query_events` count for rate limit (60/600/6000 per minute)
-4. Inspect decrypted `upstashSearchUrl`/`upstashSearchToken` server-side (never log in prod)
-5. Validate `sites.status = 'active'` (not `'pending'` or `'failed'`)
+---
 
 ## Widget Development (`public/embed.js`)
 
-**Architecture**: Vanilla JavaScript embeddable widget (566 lines, no dependencies) that creates floating search button + modal.
+**Architecture**: 565-line vanilla JavaScript embeddable widget (no dependencies)
 
-### Key Features
-- **Configuration**: Reads `data-site-key`, `data-endpoint`, `data-accent`, `data-position` from `<script>` tag
-- **Styling**: Inline CSS with CSS variables for theming (`--bridgit-accent`, `--bridgit-text-primary`, etc.)
-- **Search flow**: Debounced fetch to `/api/search` → renders results → tracks clicks
-- **Keyboard**: `Cmd+K`/`Ctrl+K` to open, `Esc` to close, arrow keys for navigation
-- **Responsive**: Mobile-friendly with 90% width modal, max 600px
+**Features**:
+- Floating search button (configurable position: bottom-right, bottom-left, top-right, top-left)
+- Modal overlay with search input
+- Debounced search requests (300ms)
+- Result rendering with title, snippet, URL
+- Click tracking for analytics
+- Keyboard shortcuts: `Cmd+K`/`Ctrl+K` to open, `Esc` to close, arrow keys for navigation
+- Responsive design (mobile-friendly)
+- Customizable theming via CSS variables
 
-### Adding Widget to Site
+**Configuration** (via `<script>` tag attributes):
 ```html
 <script 
   src="https://cdn.bridgit-ai.com/embed.js" 
-  data-site-key="bai_abc123..."
-  data-accent="#6366f1"
-  data-position="bottom-right"
+  data-site-key="bai_abc123..."      <!-- REQUIRED -->
+  data-endpoint="/api/search"        <!-- Default: /api/search -->
+  data-accent="#6366f1"              <!-- Brand color (default: indigo) -->
+  data-position="bottom-right"       <!-- Button position -->
   defer>
 </script>
 ```
 
-**Local testing**: Change `src` to `http://localhost:3000/embed.js` and set `data-endpoint="http://localhost:3000/api/search"`
+---
 
-### Widget Customization Points
-- `data-accent`: Primary color (default: `#6366f1` indigo)
-- `data-position`: `'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'`
-- Branding: Shows "Powered by Bridgit-AI" if `sites.brandingEnabled = true` (free plan default)
+## shadcn/ui Components (32 Installed)
 
-**Widget structure**: Button → Modal overlay → Header + Search input → Results list → Footer branding
+**Configuration**: "new-york" style, RSC enabled, CSS variables for theming
 
-## Common Gotchas
-
-- **`users.id` is `varchar(255)`, not `uuid`** - Neon Auth uses string IDs like `'3d62940c-006e-4b7d-bc8...'`
-- **RLS requires `authenticated` role** - All queries fail if JWT missing/invalid (returns 0 rows, not error)
-- **Crawl throttle persists** - Always check `sites.nextCrawlAt` before re-crawling (plan-based: 30/10/2 min)
-- **Edge runtime crypto** - Use `lib/crypto.edge.ts` (Web Crypto API, async), not `lib/crypto.server.ts` (Node.js `crypto`)
-- **JWT validation automatic** - Neon Data API validates JWT from `Authorization` header, enforces RLS automatically
-- **Referrer validation case-sensitive** - `allowedReferrers` array must match origin exactly (protocol + domain + port)
-- **Widget CORS**: Add widget host origin to `sites.allowedReferrers` array, not just site domain
-- **Encryption key length** - `ENCRYPTION_KEY` must be exactly 32 characters for AES-256-GCM (base64 string)
-
-## Quick Reference: Common Tasks
-
-### Adding a New API Route
-```typescript
-// app/api/[name]/route.ts
-import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
-
-export async function GET(req: NextRequest) {
-  // Neon Data API validates JWT from Authorization header
-  // RLS policies automatically filter by auth.user_id()
-  
-  // Query DB - RLS enforces user isolation automatically
-  const data = await db.query.sites.findMany()
-  return NextResponse.json({ data })
-}
-```
-
-### Querying with Relations
-```typescript
-const site = await db.query.sites.findFirst({
-  where: eq(sites.id, siteId),
-  with: {
-    searchIndex: true,      // 1:1 relation
-    quota: true,            // 1:1 relation
-    crawlJobs: {            // 1:many relation
-      orderBy: (crawlJobs, { desc }) => [desc(crawlJobs.createdAt)],
-      limit: 10,
-    },
-  },
-})
-```
-
-### Adding a New shadcn/ui Component
+**Adding Components**:
 ```bash
-npx shadcn@latest add dialog       # Adds components/ui/dialog.tsx
-npx shadcn@latest add form         # Adds form primitives + react-hook-form integration
+npx shadcn@latest add [component-name]  # Installs to @/components/ui
 ```
 
-### Server Component with Data Fetching
+**Installed Components** (use these before creating custom UI):
+- Button, Input, Label, Textarea
+- Dialog, Drawer, Popover, Tooltip, Dropdown Menu
+- Card, Separator, Avatar, Badge
+- Checkbox, Radio Group, Select, Switch, Toggle
+- Tabs, Collapsible, Navigation Menu
+- Data Table (TanStack Table wrapper)
+- Form (react-hook-form integration)
+
+**ALWAYS use `cn()` for className merging**:
 ```tsx
-// app/dashboard/page.tsx (Server Component by default)
-import { db } from '@/lib/db'
-
-export default async function DashboardPage() {
-  // RLS automatically filters to current user's data
-  const sites = await db.query.sites.findMany()
-  
-  return <div>Your Sites: {sites.length}</div>
-}
+import { cn } from "@/lib/utils"
+<div className={cn("base-classes", conditionalClass, props.className)} />
 ```
 
-### Client Component with API Call
-```tsx
-"use client"
-import { useEffect, useState } from 'react'
+---
 
-export function UserSites() {
-  const [sites, setSites] = useState([])
-  
-  useEffect(() => {
-    // Include Neon Auth JWT in Authorization header
-    fetch('/api/sites', {
-      headers: { 'Authorization': `Bearer ${neonAuthToken}` }
-    })
-      .then(res => res.json())
-      .then(data => setSites(data))
-  }, [])
-  
-  return <div>{sites.map(site => site.name)}</div>
-}
+## Common Gotchas & Known Issues
+
+1. **Google Fonts build failure** - ALWAYS apply fonts workaround in CI/CD (see "Build Issues" section)
+2. **ESLint treats warnings as errors** - Fix unused imports/vars and `react/no-unescaped-entities` before build
+3. **`users.id` is `varchar(255)`, NOT `uuid`** - Neon Auth uses string IDs
+4. **Edge runtime crypto** - Use `lib/crypto.edge.ts` (async Web Crypto), NOT `lib/crypto.server.ts` (Node.js)
+5. **Referrer validation case-sensitive** - `allowedReferrers` must match origin exactly (protocol + domain + port)
+6. **Encryption key length** - `ENCRYPTION_KEY` must be exactly 32 characters for AES-256-GCM
+7. **Never modify `neon_auth` schema** - It's system-managed by Neon
+
+---
+
+## Quick Reference: Common Commands
+
+```bash
+# Development
+pnpm dev                    # Start dev server (http://localhost:3000)
+pnpm build                  # Production build (~12-15s) - apply fonts workaround if needed
+pnpm start                  # Start production server
+
+# Database
+pnpm db:generate            # Generate migrations from schema
+pnpm db:migrate             # Apply migrations to Neon
+pnpm db:push                # Push schema changes (dev only)
+pnpm db:studio              # Open Drizzle Studio (localhost:4983)
+
+# Code Quality
+pnpm lint                   # Run ESLint 9 - fix errors before build
 ```
 
-### Encrypting Sensitive Data
-```typescript
-// Server-side only (API routes, Server Components)
-import { encrypt, decrypt } from '@/lib/crypto.server'
+**Build Success Criteria**:
+- Compilation completes (~12-15s)
+- No TypeScript errors
+- No ESLint errors (all warnings fixed as of Dec 5, 2025)
+- Static pages generated (10 routes)
 
-const encrypted = encrypt('my-secret-token')
-await db.insert(searchIndexes).values({ upstashSearchToken: encrypted })
+---
 
-// Later...
-const decrypted = decrypt(row.upstashSearchToken)
+## Priority Information for Coding Agents
 
-// Edge runtime (use async Web Crypto)
-import { decrypt } from '@/lib/crypto.edge'
-const decrypted = await decrypt(encrypted)
-```
+### When Starting a New Task:
+
+1. **ALWAYS install pnpm and dependencies first**: `npm install -g pnpm && pnpm install`
+2. **ALWAYS create `.env.local` with minimum required vars** (see "Environment Setup" section)
+3. **ALWAYS apply Google Fonts workaround** if building in restricted network:
+   ```bash
+   ./scripts/disable-fonts.sh && pnpm build && ./scripts/enable-fonts.sh
+   ```
+4. **Run `pnpm lint` early** to catch unused imports/vars before build
+5. **Never modify `neon_auth` schema** - it's system-managed by Neon
+6. **Use shadcn/ui components** - 32 already installed, avoid creating custom UI primitives
+7. **Edge runtime restrictions** - use `lib/crypto.edge.ts`, NOT `lib/crypto.server.ts`
+
+### When Making Changes:
+
+1. **Minimal edits** - change as few lines as possible
+2. **Fix lint warnings immediately** - remove unused imports/vars, escape JSX entities
+3. **Test incrementally** - run `pnpm lint` and `pnpm build` after each change
+4. **Security first** - never expose credentials, always use encryption for sensitive data
+
+### Focus Areas (Per Problem Statement):
+
+**Primary Deliverable**: Embeddable search widget (`public/embed.js` - 565 lines already complete)
+- Multiple styles: floating bubble (✅), docked bar (⏳), embedded bar (⏳)
+- Customization: colors (✅), position (✅), theming (✅)
+- Analytics: CTR tracking (✅), latency logging (✅), zero-result tracking (⏳)
+
+**Dashboard Analytics**: Extend existing analytics to show:
+- Top queries (database: `analytics_query_events`, group by `query`)
+- Zero-result queries (filter where `resultsCount = 0`)
+- Click-through rates (track `selectedDocId` in analytics events)
+
+**Use Existing Components**:
+- 32 shadcn/ui components in `components/ui/`
+- Dashboard sections in `components/user-dashboard-sections/`
+- DO NOT recreate HTML components - extend existing ones
+
+---
+
+**Last Updated**: December 5, 2025  
+**Repository**: https://github.com/Tattzy25/bai  
+**Build Status**: ✅ All ESLint errors fixed, Google Fonts workaround documented

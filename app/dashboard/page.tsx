@@ -11,18 +11,6 @@ import {
 } from "@/components/ui/sidebar"
 import { useEffect, useState } from "react"
 
-type Site = {
-  id: string
-  name: string
-  domain: string
-  plan: string
-  status: string
-  pagesIndexed: number
-  quota?: {
-    queriesUsed: number
-  }
-}
-
 export default function Page() {
   const [stats, setStats] = useState({
     totalSearches: 0,

@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { db } from '@/lib/db'
 import { sites, searchIndexes, quotas, crawlJobs } from '@/lib/db/schema'
 import { encrypt, generatePublicKey } from '@/lib/crypto.server'
-import { Search } from '@upstash/search'
 
 const createSiteSchema = z.object({
   name: z.string().min(1).max(255),
@@ -113,7 +112,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Neon Auth JWT validation and RLS filtering happens at database level
     // No manual user authentication needed - RLS policies enforce access

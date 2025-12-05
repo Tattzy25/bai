@@ -1,9 +1,6 @@
 "use client"
 
-import { useRouter } from "next/navigation"
-
 export default function SignInPage() {
-  const router = useRouter()
 
   // Neon Auth handles authentication via JWT
   // This is a placeholder sign in page

@@ -67,29 +67,36 @@ pnpm db:studio        # Launch Drizzle Studio on localhost:4983
 **Known Issue #1: Google Fonts Network Error (CRITICAL)**
 - **Symptom**: Build fails with "Failed to fetch `Geist` from Google Fonts" + "Failed to fetch `Geist Mono` from Google Fonts"
 - **Cause**: Font loading requires internet access during build (blocked in restricted environments like GitHub Actions)
-- **Workaround**: Temporarily comment out font imports in `app/layout.tsx`:
+- **Workaround** (AUTOMATED - RECOMMENDED):
+  
+```bash
+# Before build: disable fonts
+./scripts/disable-fonts.sh
+
+# Run build
+pnpm build
+
+# After build: restore fonts (optional)
+./scripts/enable-fonts.sh
+```
+
+- **Workaround** (MANUAL - if scripts unavailable): Edit `app/layout.tsx`:
   
 ```typescript
-// Before (lines 2, 6-14):
-import { Geist, Geist_Mono } from "next/font/google";
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
-
-// After (comment out):
+// Comment out lines 2, 6-14, and update line 29:
 // import { Geist, Geist_Mono } from "next/font/google";
-// const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-// const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+// const geistSans = Geist({ ... });
+// const geistMono = Geist_Mono({ ... });
 
-// Also update line 29:
-// Before:
+// Change:
 className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-// After:
+// To:
 className="antialiased"
 ```
 
 - **Impact**: Build will succeed without custom fonts; default system fonts used
 - **When to use**: ALWAYS use this workaround in CI/CD pipelines or restricted networks
-- **When to revert**: After successful build/deploy, or in local development with internet access
+- **Scripts location**: `scripts/disable-fonts.sh` and `scripts/enable-fonts.sh`
 
 **Known Issue #2: ESLint Warnings Treated as Errors**
 - **Symptom**: Build completes compilation but fails linting with warnings like:
@@ -407,7 +414,10 @@ pnpm lint                   # Run ESLint 9 - fix errors before build
 
 1. **ALWAYS install pnpm and dependencies first**: `npm install -g pnpm && pnpm install`
 2. **ALWAYS create `.env.local` with minimum required vars** (see "Environment Setup" section)
-3. **ALWAYS apply Google Fonts workaround** if building in restricted network (see "Build Issues")
+3. **ALWAYS apply Google Fonts workaround** if building in restricted network:
+   ```bash
+   ./scripts/disable-fonts.sh && pnpm build && ./scripts/enable-fonts.sh
+   ```
 4. **Run `pnpm lint` early** to catch unused imports/vars before build
 5. **Never modify `neon_auth` schema** - it's system-managed by Neon
 6. **Use shadcn/ui components** - 32 already installed, avoid creating custom UI primitives
